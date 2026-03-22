@@ -27,6 +27,38 @@ export const PLATFORMS = {
 
 export type PlatformKey = keyof typeof PLATFORMS;
 
+export const PLATFORM_CHANNELS = {
+  INSTAGRAM: { label: "Instagram", color: "bg-pink-500", textColor: "text-pink-700" },
+  TIKTOK: { label: "TikTok", color: "bg-gray-900", textColor: "text-gray-900" },
+  YOUTUBE_LONG: { label: "YouTube Long", color: "bg-red-500", textColor: "text-red-700" },
+  YOUTUBE_SHORT: { label: "YouTube Shorts", color: "bg-red-400", textColor: "text-red-600" },
+  LINKEDIN: { label: "LinkedIn", color: "bg-blue-600", textColor: "text-blue-700" },
+} as const;
+
+export type PlatformChannelKey = keyof typeof PLATFORM_CHANNELS;
+
+export function expandPlatformsToChannels(
+  platforms: string,
+  format?: string
+): PlatformChannelKey[] {
+  const list = platforms.split(",").map((p) => p.trim()).filter(Boolean);
+  const channels: PlatformChannelKey[] = [];
+  for (const p of list) {
+    if (p === "YOUTUBE") {
+      if (format === "YOUTUBE_LONG") {
+        channels.push("YOUTUBE_LONG");
+      } else if (format === "YOUTUBE_SHORT") {
+        channels.push("YOUTUBE_SHORT");
+      } else {
+        channels.push("YOUTUBE_LONG", "YOUTUBE_SHORT");
+      }
+    } else if (p in PLATFORM_CHANNELS) {
+      channels.push(p as PlatformChannelKey);
+    }
+  }
+  return channels;
+}
+
 export const STATUSES = {
   IDEA: { label: "Idee", order: 0 },
   SCRIPTED: { label: "Script", order: 1 },

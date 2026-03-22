@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,10 +13,18 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { PILLARS, FORMATS, PLATFORMS, STATUSES, type PillarKey, type FormatKey, type StatusKey } from "@/lib/brand-config";
+import { PILLARS, FORMATS, PLATFORMS, STATUSES, PLATFORM_CHANNELS, type PillarKey, type PlatformChannelKey } from "@/lib/brand-config";
+import { PlatformStatusDots } from "@/components/shared/platform-badge";
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addDays, isSameMonth, isSameDay } from "date-fns";
 import { de } from "date-fns/locale";
-import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Check } from "lucide-react";
+
+interface PostPlatformStatus {
+  id: string;
+  platform: string;
+  published: boolean;
+  publishedAt: string | null;
+}
 
 interface Post {
   id: string;
@@ -31,6 +38,7 @@ interface Post {
   script: string | null;
   caption: string | null;
   hashtags: string | null;
+  platformStatuses: PostPlatformStatus[];
 }
 
 export default function CalendarPage() {
@@ -77,7 +85,7 @@ export default function CalendarPage() {
     };
 
     await fetch("/api/posts", {
-      method: editingPost ? "PUT" : "POST",
+      method: editingPost?.id ? "PUT" : "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
@@ -91,13 +99,27 @@ export default function CalendarPage() {
     fetchPosts();
   }
 
+  async function togglePlatformStatus(postId: string, platform: string, published: boolean) {
+    await fetch("/api/posts/platform-status", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ postId, platform, published }),
+    });
+    fetchPosts();
+  }
+
   function openEdit(post: Post) {
     setEditingPost(post);
     setDialogOpen(true);
   }
 
   function openNew(date?: Date) {
-    setEditingPost(date ? { id: "", title: "", hook: null, pillar: "AI", format: "REEL", platforms: "INSTAGRAM", status: "IDEA", scheduledDate: format(date, "yyyy-MM-dd"), script: null, caption: null, hashtags: null } : null);
+    setEditingPost(date ? {
+      id: "", title: "", hook: null, pillar: "AI", format: "REEL",
+      platforms: "INSTAGRAM", status: "IDEA",
+      scheduledDate: format(date, "yyyy-MM-dd"),
+      script: null, caption: null, hashtags: null, platformStatuses: [],
+    } : null);
     setDialogOpen(true);
   }
 
@@ -164,6 +186,45 @@ export default function CalendarPage() {
                   ))}
                 </div>
               </div>
+
+              {/* Platform Status Tracking */}
+              {editingPost?.id && editingPost.platformStatuses?.length > 0 && (
+                <div>
+                  <Label>Posting-Status pro Plattform</Label>
+                  <div className="mt-2 space-y-2">
+                    {editingPost.platformStatuses.map((ps) => {
+                      const channel = PLATFORM_CHANNELS[ps.platform as PlatformChannelKey];
+                      if (!channel) return null;
+                      return (
+                        <label
+                          key={ps.platform}
+                          className={`flex items-center gap-3 rounded-lg border p-3 cursor-pointer transition-colors ${
+                            ps.published ? "border-green-300 bg-green-50" : "hover:bg-accent"
+                          }`}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            togglePlatformStatus(editingPost.id, ps.platform, !ps.published);
+                          }}
+                        >
+                          <div className={`flex h-5 w-5 items-center justify-center rounded border ${
+                            ps.published ? "bg-green-500 border-green-500 text-white" : "border-gray-300"
+                          }`}>
+                            {ps.published && <Check className="h-3 w-3" />}
+                          </div>
+                          <span className={`inline-block h-2.5 w-2.5 rounded-full ${channel.color}`} />
+                          <span className="text-sm font-medium">{channel.label}</span>
+                          {ps.published && ps.publishedAt && (
+                            <span className="ml-auto text-xs text-muted-foreground">
+                              {new Date(ps.publishedAt).toLocaleDateString("de-DE")}
+                            </span>
+                          )}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               <div>
                 <Label htmlFor="script">Script</Label>
                 <Textarea id="script" name="script" rows={4} defaultValue={editingPost?.script || ""} placeholder="Video-Script..." />
@@ -230,12 +291,15 @@ export default function CalendarPage() {
                   {dayPosts.map((post) => (
                     <div
                       key={post.id}
-                      className={`mb-0.5 rounded px-1.5 py-0.5 text-xs text-white cursor-pointer ${PILLARS[post.pillar as PillarKey]?.color || "bg-gray-500"}`}
+                      className={`mb-1 rounded px-1.5 py-1 text-xs text-white cursor-pointer ${PILLARS[post.pillar as PillarKey]?.color || "bg-gray-500"}`}
                       onClick={(e) => { e.stopPropagation(); openEdit(post); }}
                     >
-                      <div className="flex items-center justify-between">
-                        <span className="truncate">{post.title}</span>
-                      </div>
+                      <span className="truncate block">{post.title}</span>
+                      {post.platformStatuses?.length > 0 && (
+                        <div className="mt-0.5">
+                          <PlatformStatusDots platformStatuses={post.platformStatuses} />
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -245,7 +309,7 @@ export default function CalendarPage() {
         </CardContent>
       </Card>
 
-      {/* Status Legend */}
+      {/* Legend */}
       <div className="flex flex-wrap gap-4">
         {(Object.entries(PILLARS) as [PillarKey, (typeof PILLARS)[PillarKey]][]).map(([key, p]) => (
           <div key={key} className="flex items-center gap-2">

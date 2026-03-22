@@ -12,6 +12,7 @@ import {
   Anchor,
   Repeat,
   Film,
+  Radar,
   Settings,
 } from "lucide-react";
 
@@ -21,6 +22,7 @@ const navItems = [
   { href: "/studio", label: "AI Studio", icon: Sparkles },
   { href: "/ideas", label: "Ideen-Pool", icon: Lightbulb },
   { href: "/hooks", label: "Hook-Bibliothek", icon: Anchor },
+  { href: "/scanner", label: "Scanner", icon: Radar },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
   { href: "/series", label: "Serien", icon: Repeat },
   { href: "/batch", label: "Batch-Planer", icon: Film },
@@ -36,7 +38,7 @@ export function Sidebar() {
           FR
         </div>
         <div>
-          <p className="text-sm font-semibold">Felix Reuter</p>
+          <p className="text-sm font-semibold">Freuter Personal Brand</p>
           <p className="text-xs text-muted-foreground">Content Dashboard</p>
         </div>
       </div>

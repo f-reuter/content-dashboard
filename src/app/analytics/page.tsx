@@ -7,15 +7,22 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { PILLARS, type PillarKey } from "@/lib/brand-config";
-import { Plus, BarChart3, TrendingUp, Eye, Heart, Bookmark } from "lucide-react";
+import { PILLARS, PLATFORM_CHANNELS, type PillarKey, type PlatformChannelKey } from "@/lib/brand-config";
+import { Plus, BarChart3, TrendingUp, Eye, Heart, Bookmark, Check } from "lucide-react";
+
+interface PostPlatformStatus {
+  platform: string;
+  published: boolean;
+}
 
 interface Post {
   id: string;
   title: string;
   pillar: string;
+  platforms: string;
   status: string;
   publishedDate: string | null;
+  platformStatuses: PostPlatformStatus[];
 }
 
 interface KPI {
@@ -38,14 +45,17 @@ export default function AnalyticsPage() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
 
+  const [allPosts, setAllPosts] = useState<Post[]>([]);
+
   const fetchData = useCallback(async () => {
-    const [kpiRes, postRes] = await Promise.all([
+    const [kpiRes, postRes, allPostRes] = await Promise.all([
       fetch("/api/kpis"),
       fetch("/api/posts?status=PUBLISHED"),
+      fetch("/api/posts"),
     ]);
     setKpis(await kpiRes.json());
-    const allPosts = await postRes.json();
-    setPosts(allPosts);
+    setPosts(await postRes.json());
+    setAllPosts(await allPostRes.json());
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
@@ -173,6 +183,92 @@ export default function AnalyticsPage() {
                 ))}
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Platform Performance */}
+      <Card>
+        <CardHeader><CardTitle>Performance nach Plattform</CardTitle></CardHeader>
+        <CardContent>
+          {(() => {
+            const channelStats: Record<string, { total: number; published: number; views: number; engagement: number; kpiCount: number }> = {};
+            for (const key of Object.keys(PLATFORM_CHANNELS)) {
+              channelStats[key] = { total: 0, published: 0, views: 0, engagement: 0, kpiCount: 0 };
+            }
+            for (const post of allPosts) {
+              if (post.platformStatuses) {
+                for (const ps of post.platformStatuses) {
+                  if (channelStats[ps.platform]) {
+                    channelStats[ps.platform].total++;
+                    if (ps.published) channelStats[ps.platform].published++;
+                  }
+                }
+              }
+            }
+            // Attribute KPIs to platforms based on post's platformStatuses
+            for (const kpi of kpis) {
+              const post = allPosts.find(p => p.id === kpi.postId);
+              if (post?.platformStatuses) {
+                const platforms = post.platformStatuses.map(ps => ps.platform);
+                for (const pl of platforms) {
+                  if (channelStats[pl]) {
+                    channelStats[pl].views += kpi.views;
+                    channelStats[pl].engagement += kpi.engagementRate || 0;
+                    channelStats[pl].kpiCount++;
+                  }
+                }
+              }
+            }
+
+            const hasData = Object.values(channelStats).some(s => s.total > 0);
+            if (!hasData) return <p className="text-sm text-muted-foreground">Noch keine Plattform-Daten.</p>;
+
+            return (
+              <div className="grid gap-3 md:grid-cols-5">
+                {(Object.entries(PLATFORM_CHANNELS) as [PlatformChannelKey, (typeof PLATFORM_CHANNELS)[PlatformChannelKey]][]).map(
+                  ([key, channel]) => {
+                    const stats = channelStats[key];
+                    const avgEng = stats.kpiCount > 0 ? stats.engagement / stats.kpiCount : 0;
+                    return (
+                      <div key={key} className="rounded-lg border p-4 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <span className={`h-3 w-3 rounded-full ${channel.color}`} />
+                          <span className="text-sm font-medium">{channel.label}</span>
+                        </div>
+                        <div className="text-xs text-muted-foreground space-y-1">
+                          <div className="flex justify-between">
+                            <span>Posts</span>
+                            <span className="font-medium text-foreground">{stats.total}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Gepostet</span>
+                            <span className="font-medium text-foreground">
+                              {stats.published}
+                              {stats.total > 0 && stats.published === stats.total && (
+                                <Check className="inline h-3 w-3 text-green-500 ml-1" />
+                              )}
+                            </span>
+                          </div>
+                          {stats.views > 0 && (
+                            <div className="flex justify-between">
+                              <span>Views</span>
+                              <span className="font-medium text-foreground">{stats.views.toLocaleString("de-DE")}</span>
+                            </div>
+                          )}
+                          {avgEng > 0 && (
+                            <div className="flex justify-between">
+                              <span>Ø Eng.</span>
+                              <span className="font-medium text-foreground">{avgEng.toFixed(1)}%</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  }
+                )}
+              </div>
+            );
+          })()}
         </CardContent>
       </Card>
 
