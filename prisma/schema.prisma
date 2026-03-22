@@ -1,0 +1,118 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Post {
+  id             String   @id @default(cuid())
+  title          String
+  hook           String?
+  script         String?
+  caption        String?
+  hashtags       String?
+  pillar         String   // AI, EFFICIENCY, FITNESS, REALTALK
+  format         String   // REEL, CAROUSEL, YOUTUBE_LONG, YOUTUBE_SHORT, LINKEDIN, STORY
+  platforms      String   // comma-separated: INSTAGRAM,TIKTOK,YOUTUBE,LINKEDIN
+  status         String   @default("IDEA") // IDEA, SCRIPTED, FILMED, EDITED, SCHEDULED, PUBLISHED
+  scheduledDate  DateTime?
+  publishedDate  DateTime?
+  thumbnailIdea  String?
+  ctaText        String?
+  seriesId       String?
+  parentPostId   String?
+  batchSessionId String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  series       Series?       @relation(fields: [seriesId], references: [id])
+  parentPost   Post?         @relation("RepurposedFrom", fields: [parentPostId], references: [id])
+  childPosts   Post[]        @relation("RepurposedFrom")
+  batchSession BatchSession? @relation(fields: [batchSessionId], references: [id])
+  kpis         KPI[]
+  hooks        Hook[]
+  abTestsA     ABTest[]      @relation("VariantA")
+  abTestsB     ABTest[]      @relation("VariantB")
+}
+
+model KPI {
+  id             String   @id @default(cuid())
+  postId         String
+  views          Int      @default(0)
+  likes          Int      @default(0)
+  comments       Int      @default(0)
+  saves          Int      @default(0)
+  shares         Int      @default(0)
+  engagementRate Float?
+  postingTime    String?
+  notes          String?
+  recordedAt     DateTime @default(now())
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+}
+
+model Idea {
+  id               String   @id @default(cuid())
+  hook             String
+  description      String?
+  pillar           String
+  format           String?
+  rating           Int      @default(0)
+  sourceVideoUrls  String?
+  convertedToPostId String?
+  createdAt        DateTime @default(now())
+}
+
+model Hook {
+  id               String   @id @default(cuid())
+  text             String
+  type             String   // QUESTION, CONTROVERSIAL, RESULT, SHOCK, STORY
+  postId           String?
+  performanceScore Float?
+  createdAt        DateTime @default(now())
+
+  post Post? @relation(fields: [postId], references: [id])
+}
+
+model Series {
+  id            String   @id @default(cuid())
+  name          String
+  description   String?
+  pillar        String
+  frequency     String?
+  templateHook  String?
+  templateFormat String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  posts Post[]
+}
+
+model BatchSession {
+  id          String   @id @default(cuid())
+  name        String
+  plannedDate DateTime?
+  setupType   String?  // TALKING_HEAD, SCREENCAST, GYM, OUTDOOR, MIXED
+  notes       String?
+  checklist   String?
+  createdAt   DateTime @default(now())
+
+  posts Post[]
+}
+
+model ABTest {
+  id             String   @id @default(cuid())
+  name           String
+  hypothesis     String?
+  variantAPostId String?
+  variantBPostId String?
+  winner         String?
+  notes          String?
+  createdAt      DateTime @default(now())
+
+  variantA Post? @relation("VariantA", fields: [variantAPostId], references: [id])
+  variantB Post? @relation("VariantB", fields: [variantBPostId], references: [id])
+}
