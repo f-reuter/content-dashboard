@@ -14,6 +14,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { PLATFORM_CHANNELS, PILLARS, type PlatformChannelKey, type PillarKey } from "@/lib/brand-config";
+import { PlatformIcon } from "@/components/shared/platform-icon";
 import {
   Plus,
   Radar,
@@ -268,7 +269,7 @@ export default function ScannerPage() {
             return (
               <div key={platform.key}>
                 <div className="flex items-center gap-2 mb-3">
-                  <span className={`h-3 w-3 rounded-full ${platform.color}`} />
+                  <PlatformIcon platform={platform.key} className="h-4 w-4" />
                   <h3 className="font-semibold">{platform.label}</h3>
                   <Badge variant="outline">{platformComps.length}</Badge>
                 </div>
@@ -332,7 +333,7 @@ export default function ScannerPage() {
             <Button variant={!platformFilter ? "default" : "outline"} size="sm" onClick={() => setPlatformFilter("")}>Alle</Button>
             {PLATFORM_OPTIONS.map((p) => (
               <Button key={p.key} variant={platformFilter === p.key ? "default" : "outline"} size="sm" onClick={() => setPlatformFilter(p.key)}>
-                {p.label}
+                <PlatformIcon platform={p.key} className="h-3.5 w-3.5 mr-1" />{p.label}
               </Button>
             ))}
           </div>
@@ -360,7 +361,7 @@ export default function ScannerPage() {
                             <div>
                               <p className="font-medium text-sm line-clamp-1">{item.title || item.caption?.slice(0, 80) || "Ohne Titel"}</p>
                               <div className="flex items-center gap-2 mt-0.5">
-                                <span className={`inline-block h-2 w-2 rounded-full ${platformInfo?.color || "bg-gray-400"}`} />
+                                <PlatformIcon platform={item.platform} className="h-3 w-3" />
                                 <span className="text-xs text-muted-foreground">{item.competitor?.name || platformInfo?.label}</span>
                                 <span className="text-xs text-muted-foreground">·</span>
                                 <span className="text-xs text-muted-foreground">{new Date(item.scannedAt).toLocaleDateString("de-DE")}</span>

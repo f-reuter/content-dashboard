@@ -73,8 +73,14 @@ model Hook {
   id               String   @id @default(cuid())
   text             String
   type             String   // QUESTION, CONTROVERSIAL, RESULT, SHOCK, STORY
+  platforms        String?  // Komma-separiert: INSTAGRAM,TIKTOK,YOUTUBE,LINKEDIN
+  formats          String?  // Komma-separiert: REEL,CAROUSEL,YOUTUBE_LONG,etc.
+  pillar           String?  // AI, EFFICIENCY, FITNESS, REALTALK
   postId           String?
   performanceScore Float?
+  usageCount       Int      @default(0)
+  isFavorite       Boolean  @default(false)
+  notes            String?  // Warum funktioniert dieser Hook?
   createdAt        DateTime @default(now())
 
   post Post? @relation(fields: [postId], references: [id])

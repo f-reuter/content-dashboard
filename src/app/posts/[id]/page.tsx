@@ -9,13 +9,14 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import {
-  PILLARS, FORMATS, STATUSES, PLATFORM_CHANNELS,
+  PILLARS, FORMATS, PLATFORMS, STATUSES, PLATFORM_CHANNELS, HOOK_TYPES,
   type PillarKey, type PlatformChannelKey,
 } from "@/lib/brand-config";
 import {
   Save, Check, ArrowLeft, Send, Loader2, Sparkles,
-  Calendar, FileText, Film, Scissors, Clock, CheckCircle,
+  Calendar, FileText, Film, Scissors, Clock, CheckCircle, Monitor, Play, Pause, X,
 } from "lucide-react";
+import { PlatformIcon } from "@/components/shared/platform-icon";
 
 interface PlatformStatus {
   id: string;
@@ -41,8 +42,16 @@ interface Post {
   platformStatuses: PlatformStatus[];
 }
 
+interface ScriptRow {
+  id: string;
+  time?: string;
+  speech: string;
+  visual: string;
+}
+
 interface PlatformContent {
   script?: string;
+  scriptRows?: ScriptRow[];
   caption?: string;
   hashtags?: string;
   cta?: string;
@@ -75,6 +84,16 @@ export default function PostDetailPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [syncPlatforms, setSyncPlatforms] = useState(false);
+  const [scriptView, setScriptView] = useState<"split" | "text">("split");
+  const [activeFormats, setActiveFormats] = useState<Set<string>>(new Set());
+  const [videoDuration, setVideoDuration] = useState(45);
+  const [teleprompterOpen, setTeleprompterOpen] = useState(false);
+  const [teleprompterSpeed, setTeleprompterSpeed] = useState(3);
+  const [teleprompterRunning, setTeleprompterRunning] = useState(false);
+  const teleprompterRef = useRef<HTMLDivElement>(null);
+  const teleprompterIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [hookTemplatesOpen, setHookTemplatesOpen] = useState(false);
+  const [hookTemplates, setHookTemplates] = useState<Array<{ id: string; text: string; type: string; performanceScore: number | null }>>([]);
 
   // Chat state
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -83,6 +102,8 @@ export default function PostDetailPage() {
   const [chatConvId, setChatConvId] = useState<string | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
+  const initializedRef = useRef(false);
+
   const fetchPost = useCallback(async () => {
     const res = await fetch(`/api/posts?id=${postId}`);
     if (!res.ok) return;
@@ -90,6 +111,10 @@ export default function PostDetailPage() {
     const p = Array.isArray(posts) ? posts.find((x: Post) => x.id === postId) : posts;
     if (!p) return;
     setPost(p);
+
+    // Only initialize platform content on first load
+    if (initializedRef.current) return;
+    initializedRef.current = true;
 
     // Parse platformContent
     const pc: Record<string, PlatformContent> = p.platformContent
@@ -110,13 +135,29 @@ export default function PostDetailPage() {
       }
     }
     setPlatformContent(pc);
-    if (!activePlatform && platforms.length > 0) {
+    if (platforms.length > 0) {
       setActivePlatform(platforms[0]);
     }
-  }, [postId, activePlatform]);
+    // Initialize active formats from post format + any additional from platformContent
+    const formats = new Set<string>([p.format]);
+    for (const key of Object.keys(pc)) {
+      if (key.startsWith("ALL_")) formats.add(key.replace("ALL_", ""));
+    }
+    setActiveFormats(formats);
+  }, [postId]);
 
   useEffect(() => { fetchPost(); }, [fetchPost]);
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatMessages]);
+
+  async function loadHookTemplates() {
+    if (hookTemplates.length > 0) { setHookTemplatesOpen(!hookTemplatesOpen); return; }
+    const res = await fetch("/api/hooks");
+    if (res.ok) {
+      const hooks = await res.json();
+      setHookTemplates(hooks);
+      setHookTemplatesOpen(true);
+    }
+  }
 
   async function savePost() {
     if (!post) return;
@@ -174,44 +215,59 @@ export default function PostDetailPage() {
     });
   }
 
-  // Chat functions
+  function updateScriptRow(index: number, field: keyof ScriptRow, value: string) {
+    setPlatformContent((prev) => {
+      const pc = { ...prev[activePlatform] };
+      const rows = [...(pc.scriptRows || [{ id: "1", time: "", speech: "", visual: "" }])];
+      rows[index] = { ...rows[index], [field]: value };
+      // Also sync the plain text script from speech column
+      pc.scriptRows = rows;
+      pc.script = rows.map((r) => `${r.time ? `[${r.time}] ` : ""}${r.speech}`).filter(Boolean).join("\n");
+      return { ...prev, [activePlatform]: pc };
+    });
+  }
+
+  function addScriptRow() {
+    setPlatformContent((prev) => {
+      const pc = { ...prev[activePlatform] };
+      const rows = [...(pc.scriptRows || [])];
+      rows.push({ id: String(Date.now()), time: "", speech: "", visual: "" });
+      pc.scriptRows = rows;
+      return { ...prev, [activePlatform]: pc };
+    });
+  }
+
+  function removeScriptRow(index: number) {
+    setPlatformContent((prev) => {
+      const pc = { ...prev[activePlatform] };
+      const rows = [...(pc.scriptRows || [])].filter((_, i) => i !== index);
+      pc.scriptRows = rows.length > 0 ? rows : [{ id: "1", time: "", speech: "", visual: "" }];
+      pc.script = rows.map((r) => `${r.time ? `[${r.time}] ` : ""}${r.speech}`).filter(Boolean).join("\n");
+      return { ...prev, [activePlatform]: pc };
+    });
+  }
+
+  // Chat functions — uses dedicated post-assist endpoint
   async function sendChat(text?: string) {
     const msg = text || chatInput.trim();
     if (!msg || chatSending) return;
     setChatSending(true);
     setChatInput("");
 
-    // Load skill prompt for current format
-    let skillPromptText = "";
-    try {
-      const brandRes = await fetch("/api/brand-config");
-      if (brandRes.ok) {
-        const brandData = await brandRes.json();
-        if (brandData.skillPrompts) {
-          const skills = JSON.parse(brandData.skillPrompts);
-          const formatSkill = skills[post?.format || ""] || skills["REEL"];
-          if (formatSkill) skillPromptText = `\n\nSKILL PROMPT für ${formatSkill.name}:\n${formatSkill.prompt}`;
-        }
-      }
-    } catch { /* ignore */ }
-
-    const postContext = post
-      ? `\n\nKONTEXT — Du arbeitest an diesem Post:\nTitel: "${post.title}"\nHook: "${post.hook || ""}"\nSäule: ${post.pillar}\nFormat: ${post.format}\nPlattformen: ${post.platforms}\nAktuelle Plattform: ${activePlatform}\nStatus: ${post.status}\nScript: ${platformContent[activePlatform]?.script || post.script || "(noch leer)"}${skillPromptText}\n\nWenn du Content generierst, nutze den Skill Prompt als Vorlage und passe an die aktuelle Plattform (${activePlatform}) an.`
-      : "";
-
     setChatMessages((prev) => [...prev, { id: `u-${Date.now()}`, role: "user", content: msg }]);
 
     try {
-      const res = await fetch("/api/ai/chat", {
+      const res = await fetch("/api/ai/post-assist", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          conversationId: chatConvId,
-          message: msg + postContext,
+          postId: post?.id,
+          message: msg,
+          videoDuration,
+          conversationHistory: chatMessages.map((m) => ({ role: m.role, content: m.content })),
         }),
       });
       const data = await res.json();
-      if (!chatConvId && data.conversationId) setChatConvId(data.conversationId);
 
       setChatMessages((prev) => [
         ...prev,
@@ -228,6 +284,35 @@ export default function PostDetailPage() {
 
   function applyToField(content: string, field: keyof PlatformContent) {
     if (!activePlatform) return;
+
+    // If applying to script, try to parse JSON script rows
+    if (field === "script") {
+      const jsonMatch = content.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        try {
+          const rows = JSON.parse(jsonMatch[0]) as Array<{ time?: string; speech: string; visual: string }>;
+          if (rows.length > 0 && rows[0].speech !== undefined) {
+            const scriptRows: ScriptRow[] = rows.map((r, i) => ({
+              id: String(Date.now() + i),
+              time: r.time || "",
+              speech: r.speech || "",
+              visual: r.visual || "",
+            }));
+            setPlatformContent((prev) => ({
+              ...prev,
+              [activePlatform]: {
+                ...prev[activePlatform],
+                scriptRows,
+                script: rows.map((r) => `${r.time ? `[${r.time}] ` : ""}${r.speech}`).join("\n"),
+              },
+            }));
+            setScriptView("split");
+            return;
+          }
+        } catch { /* not JSON, use as plain text */ }
+      }
+    }
+
     updatePlatformField(activePlatform, field, content);
   }
 
@@ -246,18 +331,21 @@ export default function PostDetailPage() {
   return (
     <div className="flex gap-6 h-[calc(100vh-4rem)]">
       {/* LEFT: Content Editor */}
-      <div className="flex-1 overflow-y-auto space-y-4 pb-8 min-w-0">
+      <div className="flex-1 overflow-y-auto space-y-4 pb-8 min-w-0 pr-2">
         {/* Header */}
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="icon" onClick={() => router.back()}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <Input
-            value={post.title}
-            onChange={(e) => setPost({ ...post, title: e.target.value })}
-            className="text-xl font-bold border-none shadow-none px-0 focus-visible:ring-0"
-            placeholder="Post-Titel..."
-          />
+          <div className="flex-1">
+            <Label className="text-[10px] text-muted-foreground">Titel</Label>
+            <Input
+              value={post.title}
+              onChange={(e) => setPost({ ...post, title: e.target.value })}
+              className="text-xl font-bold h-auto py-1 px-2"
+              placeholder="Post-Titel..."
+            />
+          </div>
           <Button onClick={savePost} disabled={saving}>
             {saved ? <><Check className="mr-1 h-4 w-4" />Gespeichert</> : saving ? "..." : <><Save className="mr-1 h-4 w-4" />Speichern</>}
           </Button>
@@ -287,106 +375,249 @@ export default function PostDetailPage() {
           })}
         </div>
 
-        {/* Meta */}
+        {/* Hook */}
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <Label className="text-xs">Hook</Label>
+            <Button variant="ghost" size="sm" className="text-xs h-6" onClick={loadHookTemplates}>
+              {hookTemplatesOpen ? "Schließen" : "Vorlagen"}
+            </Button>
+          </div>
+          <Textarea
+            value={post.hook || ""}
+            onChange={(e) => setPost({ ...post, hook: e.target.value })}
+            placeholder="Die ersten 1-2 Sekunden — muss den Scroll stoppen..."
+            rows={2}
+            className="text-base p-3"
+          />
+          {hookTemplatesOpen && (
+            <div className="mt-2 max-h-48 overflow-y-auto rounded-lg border bg-accent/30 p-2 space-y-1">
+              {hookTemplates
+                .sort((a, b) => (b.performanceScore || 0) - (a.performanceScore || 0))
+                .map((h) => (
+                <button
+                  key={h.id}
+                  onClick={() => { setPost({ ...post, hook: h.text }); setHookTemplatesOpen(false); }}
+                  className="w-full text-left rounded-md px-3 py-2 text-sm hover:bg-background transition-colors flex items-center justify-between gap-2"
+                >
+                  <span className="truncate">&ldquo;{h.text}&rdquo;</span>
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <Badge className="text-[9px]" variant="outline">{HOOK_TYPES[h.type as keyof typeof HOOK_TYPES] || h.type}</Badge>
+                    {h.performanceScore && <span className="text-[10px] text-muted-foreground">{h.performanceScore}%</span>}
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div>
+          <Label className="text-xs">Ziel & Idee des Posts</Label>
+          <Textarea
+            value={post.thumbnailIdea || ""}
+            onChange={(e) => setPost({ ...post, thumbnailIdea: e.target.value })}
+            placeholder="Was ist das Ziel dieses Posts? Welche Botschaft, welcher CTA, welches Ergebnis soll erreicht werden..."
+            rows={2}
+            className="p-3 text-sm"
+          />
+        </div>
         <div className="grid gap-3 grid-cols-3">
           <div>
-            <Label className="text-xs">Hook</Label>
-            <Input value={post.hook || ""} onChange={(e) => setPost({ ...post, hook: e.target.value })} placeholder="Die ersten 1-2 Sekunden..." />
-          </div>
-          <div>
             <Label className="text-xs">Säule</Label>
-            <select value={post.pillar} onChange={(e) => setPost({ ...post, pillar: e.target.value })} className="flex h-9 w-full rounded-md border bg-background px-3 py-1 text-sm">
+            <select value={post.pillar} onChange={(e) => setPost({ ...post, pillar: e.target.value })} className="flex h-10 w-full rounded-md border bg-background px-3 py-2 text-sm">
               {Object.entries(PILLARS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
             </select>
           </div>
           <div>
+            <Label className="text-xs">Video-Dauer (Sekunden)</Label>
+            <Input
+              type="number"
+              min={0}
+              value={videoDuration}
+              onChange={(e) => setVideoDuration(Number(e.target.value) || 0)}
+              placeholder="z.B. 45"
+              className="h-10"
+            />
+          </div>
+          <div>
             <Label className="text-xs">Datum</Label>
-            <Input type="date" value={post.scheduledDate?.split("T")[0] || ""} onChange={(e) => setPost({ ...post, scheduledDate: e.target.value })} />
+            <Input type="date" value={post.scheduledDate?.split("T")[0] || ""} onChange={(e) => setPost({ ...post, scheduledDate: e.target.value })} className="h-10" />
           </div>
         </div>
 
-        {/* Formate & Plattformen */}
+        {/* Plattformen & Format — EINE Sektion */}
         <Card>
-          <CardContent className="pt-4 space-y-3">
-            <Label className="text-xs font-semibold">Formate & Plattformen</Label>
-            <p className="text-xs text-muted-foreground">Wähle welche Formate du aus dieser Idee erstellen willst. Plattformen mit gleichem Format teilen sich den Content.</p>
-            <div className="space-y-2">
-              {Object.entries(FORMATS).map(([fk, fv]) => {
-                const isActive = platforms.some((pl) => {
-                  const key = `${pl}_${fk}`;
-                  return platformContent[key] !== undefined;
-                }) || post.format === fk;
+          <CardContent className="pt-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <Label className="text-sm font-semibold">Plattformen</Label>
+              {platforms.length > 1 && (
+                <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+                  <input type="checkbox" checked={syncPlatforms} onChange={(e) => setSyncPlatforms(e.target.checked)} className="h-3.5 w-3.5" />
+                  Content synchronisieren
+                </label>
+              )}
+            </div>
+            <div className="grid grid-cols-4 gap-2">
+              {Object.entries(PLATFORMS).map(([k, v]) => {
+                const isSelected = post.platforms.split(",").map((s) => s.trim()).includes(k);
                 return (
-                  <label key={fk} className={`flex items-center gap-3 rounded-lg border p-2.5 cursor-pointer transition-colors ${isActive ? "border-primary bg-primary/5" : "hover:bg-accent/50"}`}>
+                  <label
+                    key={k}
+                    className={`flex flex-col items-center gap-1.5 rounded-lg border p-3 cursor-pointer transition-colors text-center ${
+                      isSelected ? "border-primary bg-primary/5" : "hover:bg-accent/50"
+                    }`}
+                  >
                     <input
                       type="checkbox"
-                      checked={isActive}
+                      checked={isSelected}
                       onChange={(e) => {
-                        if (e.target.checked && post.format !== fk) {
-                          // Add this format — create a content entry for it
-                          const key = `ALL_${fk}`;
-                          setPlatformContent((prev) => ({
-                            ...prev,
-                            [key]: { script: "", caption: "", hashtags: "", cta: "", thumbnailIdea: "" },
-                          }));
-                        }
+                        const current = post.platforms.split(",").map((s) => s.trim()).filter(Boolean);
+                        const updated = e.target.checked
+                          ? [...new Set([...current, k])]
+                          : current.filter((p) => p !== k);
+                        if (updated.length > 0) setPost({ ...post, platforms: updated.join(",") });
                       }}
-                      className="rounded"
+                      className="sr-only"
                     />
-                    <span className="text-sm font-medium">{fv}</span>
+                    <PlatformIcon platform={k} className="h-5 w-5" />
+                    <span className="text-xs font-medium">{v}</span>
                   </label>
                 );
               })}
             </div>
+
+            <div>
+              <Label className="text-xs text-muted-foreground">Format</Label>
+              <select
+                value={post.format}
+                onChange={(e) => setPost({ ...post, format: e.target.value })}
+                className="flex h-10 w-full rounded-md border bg-background px-3 py-2 text-sm mt-1"
+              >
+                {Object.entries(FORMATS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+            </div>
           </CardContent>
         </Card>
 
-        {/* Platform Tabs */}
-        <div className="flex gap-1 rounded-lg bg-muted p-1">
-          {platforms.map((pl) => {
-            const ch = PLATFORM_CHANNELS[pl as PlatformChannelKey] || { label: pl, color: "bg-gray-400" };
-            const status = post.platformStatuses?.find((ps) => ps.platform === pl || ps.platform.startsWith(pl));
-            return (
-              <button
-                key={pl}
-                onClick={() => setActivePlatform(pl)}
-                className={`flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors ${
-                  activePlatform === pl ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <span className={`h-2 w-2 rounded-full ${ch.color}`} />
-                {ch.label}
-                {status?.published && <Check className="h-3 w-3 text-green-500" />}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Linked platforms hint */}
+        {/* Platform Tabs — nur wenn mehrere ausgewählt */}
         {platforms.length > 1 && (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <input
-              type="checkbox"
-              id="syncPlatforms"
-              checked={syncPlatforms}
-              onChange={(e) => setSyncPlatforms(e.target.checked)}
-            />
-            <label htmlFor="syncPlatforms">Content für alle Plattformen gleich halten (z.B. IG Reel = TikTok)</label>
+          <div className="flex gap-1 rounded-lg bg-muted p-1">
+            {platforms.map((pl) => {
+              const ch = PLATFORM_CHANNELS[pl as PlatformChannelKey] || { label: pl, color: "bg-gray-400" };
+              const status = post.platformStatuses?.find((ps) => ps.platform === pl || ps.platform.startsWith(pl));
+              return (
+                <button
+                  key={pl}
+                  onClick={() => setActivePlatform(pl)}
+                  className={`flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+                    activePlatform === pl ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <PlatformIcon platform={pl} className="h-3.5 w-3.5" />
+                  {ch.label}
+                  {status?.published && <Check className="h-3 w-3 text-green-500" />}
+                </button>
+              );
+            })}
           </div>
         )}
 
         {/* Platform Content Editor */}
         <Card>
           <CardContent className="pt-4 space-y-4">
+            {/* Script Split Editor */}
             <div>
-              <Label>Script</Label>
-              <Textarea
-                rows={10}
-                value={currentContent.script || ""}
-                onChange={(e) => updatePlatformField(activePlatform, "script", e.target.value)}
-                placeholder="Video-Script..."
-                className="font-mono text-sm"
-              />
+              <div className="flex items-center justify-between mb-2">
+                <Label>Script</Label>
+                <div className="flex gap-1">
+                  <Button
+                    variant={scriptView === "split" ? "default" : "outline"}
+                    size="sm"
+                    className="text-xs h-7"
+                    onClick={() => setScriptView("split")}
+                  >
+                    Split-View
+                  </Button>
+                  <Button
+                    variant={scriptView === "text" ? "default" : "outline"}
+                    size="sm"
+                    className="text-xs h-7"
+                    onClick={() => setScriptView("text")}
+                  >
+                    Text
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-xs h-7 ml-2"
+                    onClick={() => setTeleprompterOpen(true)}
+                  >
+                    <Monitor className="mr-1 h-3 w-3" />
+                    Teleprompter
+                  </Button>
+                </div>
+              </div>
+
+              {scriptView === "split" ? (
+                <div className="border rounded-lg overflow-hidden">
+                  {/* Header */}
+                  <div className="grid grid-cols-[60px_1fr_1fr] bg-muted text-xs font-medium">
+                    <div className="p-2 text-center border-r">Zeit</div>
+                    <div className="p-2 border-r">Sprechtext</div>
+                    <div className="p-2">Visuell (B-Roll, Cuts, Text-Overlays)</div>
+                  </div>
+                  {/* Rows */}
+                  {(currentContent.scriptRows || [{ id: "1", time: "0-3s", speech: "", visual: "" }]).map((row, i) => (
+                    <div key={row.id} className="grid grid-cols-[60px_1fr_1fr] border-t group">
+                      <div className="p-1 border-r flex items-start">
+                        <Input
+                          value={row.time || ""}
+                          onChange={(e) => updateScriptRow(i, "time", e.target.value)}
+                          className="h-7 text-xs text-center border-none shadow-none px-1"
+                          placeholder="0-3s"
+                        />
+                      </div>
+                      <div className="p-1 border-r">
+                        <Textarea
+                          value={row.speech}
+                          onChange={(e) => updateScriptRow(i, "speech", e.target.value)}
+                          className="text-sm border-none shadow-none resize-none p-1 min-h-16"
+                          placeholder="Was sagst du..."
+                          rows={2}
+                        />
+                      </div>
+                      <div className="p-1 relative">
+                        <Textarea
+                          value={row.visual}
+                          onChange={(e) => updateScriptRow(i, "visual", e.target.value)}
+                          className="text-sm border-none shadow-none resize-none p-1 min-h-16 text-muted-foreground"
+                          placeholder="Talking Head, Screencast, Text-Overlay..."
+                          rows={2}
+                        />
+                        <button
+                          onClick={() => removeScriptRow(i)}
+                          className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 text-destructive text-xs p-0.5 hover:bg-destructive/10 rounded"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  <button
+                    onClick={addScriptRow}
+                    className="w-full p-2 text-xs text-muted-foreground hover:bg-accent transition-colors border-t"
+                  >
+                    + Zeile hinzufügen
+                  </button>
+                </div>
+              ) : (
+                <Textarea
+                  rows={10}
+                  value={currentContent.script || ""}
+                  onChange={(e) => updatePlatformField(activePlatform, "script", e.target.value)}
+                  placeholder="Video-Script..."
+                  className="font-mono text-sm"
+                />
+              )}
             </div>
             <div className="grid gap-4 md:grid-cols-2">
               <div>
@@ -439,10 +670,12 @@ export default function PostDetailPage() {
         {/* Quick Actions */}
         <div className="flex flex-wrap gap-1 mb-3">
           {[
-            { label: "Script schreiben", prompt: `Schreib mir ein komplettes Script für diesen Post. Format: ${post.format}, Plattform: ${activePlatform}.` },
-            { label: "Caption", prompt: `Schreib mir eine perfekte Caption für ${activePlatform}.` },
-            { label: "Hashtags", prompt: `Schlage mir 10 relevante Hashtags vor für ${activePlatform}.` },
-            { label: "Hook verbessern", prompt: "Verbessere meinen Hook. Mach ihn provokanter und attention-grabbing." },
+            { label: "Script", prompt: `Erstelle ein komplettes Script für diesen Post. Nutze den Skill Prompt für ${post.format}. Plattform: ${activePlatform}. Video-Dauer: ${videoDuration}s. Gib das Script als JSON-Array zurück mit time, speech und visual pro Zeile.` },
+            { label: "Caption", prompt: `Schreib mir die perfekte Caption für ${activePlatform}. Beachte den Style Guide und die plattform-spezifischen Regeln.` },
+            { label: "Hashtags", prompt: `Gib mir 10 relevante Hashtags für ${activePlatform}. Mix aus großen und Nischen-Hashtags. Nur die Hashtags, nichts anderes.` },
+            { label: "Hook", prompt: "Verbessere meinen Hook oder schlage 3 alternative Hooks vor. Sie müssen Pattern-Interrupt sein und den Scroll stoppen." },
+            { label: "CTA", prompt: `Schlage mir den besten CTA für ${activePlatform} vor. Kurz, direkt, passend zur Plattform.` },
+            { label: "Thumbnail", prompt: "Beschreibe eine Thumbnail-/Cover-Idee die Klicks generiert. Welcher Text, welches Bild, welche Emotion?" },
           ].map((action) => (
             <Button key={action.label} variant="outline" size="sm" className="text-xs h-7" onClick={() => sendChat(action.prompt)}>
               {action.label}
@@ -454,7 +687,7 @@ export default function PostDetailPage() {
         <div className="flex-1 overflow-y-auto space-y-3 mb-3">
           {chatMessages.length === 0 && (
             <p className="text-xs text-muted-foreground text-center mt-8">
-              Frag mich was du brauchst — ich kenne deinen Post und deinen Style Guide.
+              Ich kenne deinen Post, den Style Guide, die Skill Prompts und die Hook-Bibliothek. Frag mich was du brauchst!
             </p>
           )}
           {chatMessages.map((msg) => (
@@ -465,9 +698,12 @@ export default function PostDetailPage() {
                 <div className="whitespace-pre-wrap">{msg.content}</div>
               </div>
               {msg.role === "assistant" && (
-                <div className="flex gap-1 mt-1">
-                  <button onClick={() => applyToField(msg.content, "script")} className="text-[10px] text-blue-500 hover:underline">→ Script</button>
-                  <button onClick={() => applyToField(msg.content, "caption")} className="text-[10px] text-blue-500 hover:underline">→ Caption</button>
+                <div className="flex flex-wrap gap-1 mt-1">
+                  <button onClick={() => applyToField(msg.content, "script")} className="text-[10px] text-blue-500 hover:underline px-1.5 py-0.5 rounded bg-blue-50">→ Script</button>
+                  <button onClick={() => applyToField(msg.content, "caption")} className="text-[10px] text-blue-500 hover:underline px-1.5 py-0.5 rounded bg-blue-50">→ Caption</button>
+                  <button onClick={() => applyToField(msg.content, "hashtags")} className="text-[10px] text-blue-500 hover:underline px-1.5 py-0.5 rounded bg-blue-50">→ Hashtags</button>
+                  <button onClick={() => applyToField(msg.content, "cta")} className="text-[10px] text-blue-500 hover:underline px-1.5 py-0.5 rounded bg-blue-50">→ CTA</button>
+                  <button onClick={() => { if (post) setPost({ ...post, hook: msg.content.split("\n")[0] }); }} className="text-[10px] text-blue-500 hover:underline px-1.5 py-0.5 rounded bg-blue-50">→ Hook</button>
                 </div>
               )}
             </div>
@@ -497,6 +733,93 @@ export default function PostDetailPage() {
           </Button>
         </div>
       </div>
+
+      {/* Teleprompter Modal */}
+      {teleprompterOpen && (
+        <div className="fixed inset-0 z-50 bg-black flex flex-col">
+          {/* Controls */}
+          <div className="flex items-center justify-between px-6 py-3 bg-black/80 border-b border-white/10">
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => {
+                  if (teleprompterRunning) {
+                    if (teleprompterIntervalRef.current) clearInterval(teleprompterIntervalRef.current);
+                    setTeleprompterRunning(false);
+                  } else {
+                    teleprompterIntervalRef.current = setInterval(() => {
+                      teleprompterRef.current?.scrollBy({ top: teleprompterSpeed, behavior: "auto" });
+                    }, 50);
+                    setTeleprompterRunning(true);
+                  }
+                }}
+                className="flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-white hover:bg-white/20 transition-colors"
+              >
+                {teleprompterRunning ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                {teleprompterRunning ? "Pause" : "Start"}
+              </button>
+              <div className="flex items-center gap-2 text-white/70 text-sm">
+                <span>Geschwindigkeit:</span>
+                {[1, 2, 3, 4, 5].map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => {
+                      setTeleprompterSpeed(s);
+                      if (teleprompterRunning && teleprompterIntervalRef.current) {
+                        clearInterval(teleprompterIntervalRef.current);
+                        teleprompterIntervalRef.current = setInterval(() => {
+                          teleprompterRef.current?.scrollBy({ top: s, behavior: "auto" });
+                        }, 50);
+                      }
+                    }}
+                    className={`w-8 h-8 rounded-full text-sm ${teleprompterSpeed === s ? "bg-white text-black" : "bg-white/10 text-white hover:bg-white/20"}`}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                if (teleprompterIntervalRef.current) clearInterval(teleprompterIntervalRef.current);
+                setTeleprompterRunning(false);
+                setTeleprompterOpen(false);
+              }}
+              className="text-white/70 hover:text-white p-2"
+            >
+              <X className="h-6 w-6" />
+            </button>
+          </div>
+
+          {/* Script Content */}
+          <div
+            ref={teleprompterRef}
+            className="flex-1 overflow-y-auto px-12 pt-[40vh] pb-[60vh]"
+          >
+            <div className="max-w-3xl mx-auto">
+              {(currentContent.scriptRows && currentContent.scriptRows.length > 0)
+                ? currentContent.scriptRows.map((row, i) => (
+                    <div key={row.id || i} className="mb-12">
+                      {row.time && (
+                        <div className="text-yellow-400 text-lg font-mono mb-2">{row.time}</div>
+                      )}
+                      <p className="text-white text-4xl leading-relaxed font-medium">
+                        {row.speech}
+                      </p>
+                      {row.visual && (
+                        <p className="text-white/40 text-lg mt-3 italic">{row.visual}</p>
+                      )}
+                    </div>
+                  ))
+                : (currentContent.script || post.script || "Kein Script vorhanden").split("\n").map((line, i) => (
+                    <p key={i} className="text-white text-4xl leading-relaxed font-medium mb-8">
+                      {line}
+                    </p>
+                  ))
+              }
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

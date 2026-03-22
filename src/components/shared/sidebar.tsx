@@ -6,7 +6,6 @@ import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
   Calendar,
-  Sparkles,
   BarChart3,
   Lightbulb,
   Anchor,
@@ -21,7 +20,6 @@ const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/calendar", label: "Kalender", icon: Calendar },
   { href: "/chat", label: "AI Chat", icon: MessageSquare },
-  { href: "/studio", label: "AI Studio", icon: Sparkles },
   { href: "/ideas", label: "Ideen-Pool", icon: Lightbulb },
   { href: "/hooks", label: "Hook-Bibliothek", icon: Anchor },
   { href: "/scanner", label: "Scanner", icon: Radar },
