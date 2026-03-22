@@ -13,12 +13,14 @@ import {
   Repeat,
   Film,
   Radar,
+  MessageSquare,
   Settings,
 } from "lucide-react";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/calendar", label: "Kalender", icon: Calendar },
+  { href: "/chat", label: "AI Chat", icon: MessageSquare },
   { href: "/studio", label: "AI Studio", icon: Sparkles },
   { href: "/ideas", label: "Ideen-Pool", icon: Lightbulb },
   { href: "/hooks", label: "Hook-Bibliothek", icon: Anchor },

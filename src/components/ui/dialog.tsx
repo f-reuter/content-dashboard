@@ -11,8 +11,25 @@ function Dialog({ ...props }: DialogPrimitive.Root.Props) {
   return <DialogPrimitive.Root data-slot="dialog" {...props} />
 }
 
-function DialogTrigger({ ...props }: DialogPrimitive.Trigger.Props) {
-  return <DialogPrimitive.Trigger data-slot="dialog-trigger" {...props} />
+function DialogTrigger({
+  children,
+  ...props
+}: DialogPrimitive.Trigger.Props) {
+  return (
+    <DialogPrimitive.Trigger
+      data-slot="dialog-trigger"
+      render={(triggerProps) => {
+        // If child is a Button (or any element), pass trigger props to it directly
+        if (React.isValidElement(children)) {
+          return React.cloneElement(children as React.ReactElement<Record<string, unknown>>, {
+            ...triggerProps,
+            ...props,
+          })
+        }
+        return <button {...triggerProps} {...props}>{children}</button>
+      }}
+    />
+  )
 }
 
 function DialogPortal({ ...props }: DialogPrimitive.Portal.Props) {

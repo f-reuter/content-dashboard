@@ -282,6 +282,13 @@ export default function ScannerPage() {
                             <p className="text-xs text-muted-foreground">@{comp.handle}</p>
                           </div>
                           <div className="flex gap-1">
+                            {comp.profileUrl && (
+                              <a href={comp.profileUrl} target="_blank" rel="noopener noreferrer">
+                                <Button variant="ghost" size="icon" className="h-7 w-7">
+                                  <ExternalLink className="h-3 w-3" />
+                                </Button>
+                              </a>
+                            )}
                             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => toggleCompetitor(comp)}>
                               <span className={`h-2 w-2 rounded-full ${comp.isActive ? "bg-green-500" : "bg-gray-300"}`} />
                             </Button>
@@ -290,6 +297,9 @@ export default function ScannerPage() {
                             </Button>
                           </div>
                         </div>
+                        {comp.notes && (
+                          <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{comp.notes}</p>
+                        )}
                         <div className="flex gap-3 mt-2 text-xs text-muted-foreground">
                           <span>{comp._count.scannedContent} Inhalte</span>
                           {comp.scannedContent[0] && (

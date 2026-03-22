@@ -1,40 +1,42 @@
-import { NextResponse } from 'next/server'
-import type { NextRequest } from 'next/server'
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 
 export function proxy(request: NextRequest) {
-  const authUser = process.env.AUTH_USER
-  const authPassword = process.env.AUTH_PASSWORD
+  const authUser = process.env.AUTH_USER;
+  const authPassword = process.env.AUTH_PASSWORD;
 
-  // Skip auth if no credentials are configured (local dev without tunnel)
+  // Skip auth if no credentials configured
   if (!authUser || !authPassword) {
-    return NextResponse.next()
+    return NextResponse.next();
   }
 
-  const authHeader = request.headers.get('authorization')
+  const authHeader = request.headers.get("authorization");
 
   if (authHeader) {
-    const [scheme, encoded] = authHeader.split(' ')
+    const [scheme, encoded] = authHeader.split(" ");
 
-    if (scheme === 'Basic' && encoded) {
-      const decoded = atob(encoded)
-      const [user, password] = decoded.split(':')
+    if (scheme === "Basic" && encoded) {
+      try {
+        const decoded = Buffer.from(encoded, "base64").toString("utf-8");
+        const [user, password] = decoded.split(":");
 
-      if (user === authUser && password === authPassword) {
-        return NextResponse.next()
+        if (user === authUser && password === authPassword) {
+          return NextResponse.next();
+        }
+      } catch {
+        // Invalid base64
       }
     }
   }
 
-  return new NextResponse('Authentication required', {
+  return new NextResponse("Authentication required", {
     status: 401,
     headers: {
-      'WWW-Authenticate': 'Basic realm="Content Dashboard"',
+      "WWW-Authenticate": 'Basic realm="Content Dashboard"',
     },
-  })
+  });
 }
 
 export const config = {
-  matcher: [
-    '/((?!_next/static|_next/image|favicon.ico).*)',
-  ],
-}
+  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+};

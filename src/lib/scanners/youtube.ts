@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { getApiKey } from "@/lib/api-keys";
 
 interface YouTubeVideo {
   videoId: string;
@@ -15,7 +16,7 @@ interface YouTubeVideo {
 export async function scanYouTubeCompetitors(
   competitors: Array<{ id: string; handle: string; name: string }>
 ): Promise<{ scanned: number; saved: number }> {
-  const apiKey = process.env.YOUTUBE_API_KEY;
+  const apiKey = await getApiKey("YOUTUBE_API_KEY");
   if (!apiKey) throw new Error("YOUTUBE_API_KEY nicht gesetzt");
 
   let totalScanned = 0;

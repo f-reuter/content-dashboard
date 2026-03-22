@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { getApiKey } from "@/lib/api-keys";
 
 interface ApifyRunResult {
   id: string;
@@ -10,7 +11,7 @@ async function runApifyActor(
   actorId: string,
   input: Record<string, unknown>
 ): Promise<Record<string, unknown>[]> {
-  const token = process.env.APIFY_TOKEN;
+  const token = await getApiKey("APIFY_TOKEN");
   if (!token) throw new Error("APIFY_TOKEN nicht gesetzt");
 
   // Start actor run
@@ -51,7 +52,7 @@ async function runApifyActor(
 export async function scanInstagramCompetitors(
   competitors: Array<{ id: string; handle: string; name: string }>
 ): Promise<{ scanned: number; saved: number }> {
-  if (!process.env.APIFY_TOKEN) return { scanned: 0, saved: 0 };
+  if (!(await getApiKey("APIFY_TOKEN"))) return { scanned: 0, saved: 0 };
 
   let totalScanned = 0;
   let totalSaved = 0;
@@ -108,7 +109,7 @@ export async function scanInstagramCompetitors(
 export async function scanTikTokCompetitors(
   competitors: Array<{ id: string; handle: string; name: string }>
 ): Promise<{ scanned: number; saved: number }> {
-  if (!process.env.APIFY_TOKEN) return { scanned: 0, saved: 0 };
+  if (!(await getApiKey("APIFY_TOKEN"))) return { scanned: 0, saved: 0 };
 
   let totalScanned = 0;
   let totalSaved = 0;

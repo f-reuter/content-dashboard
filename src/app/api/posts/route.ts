@@ -102,6 +102,13 @@ export async function DELETE(req: NextRequest) {
   const url = new URL(req.url);
   const id = url.searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+
+  // Reset any ideas that point to this post so they go back to the pool
+  await prisma.idea.updateMany({
+    where: { convertedToPostId: id },
+    data: { convertedToPostId: null, status: "REVIEWED" },
+  });
+
   await prisma.post.delete({ where: { id } });
   return NextResponse.json({ success: true });
 }
