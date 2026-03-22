@@ -1,11 +1,11 @@
 import { prisma } from "@/lib/prisma";
-import { PILLARS, type PillarKey } from "@/lib/brand-config";
+import { PILLARS, PLATFORM_CHANNELS, type PillarKey, type PlatformChannelKey } from "@/lib/brand-config";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { format, startOfWeek, endOfWeek, addDays } from "date-fns";
 import { de } from "date-fns/locale";
 import Link from "next/link";
-import { Calendar, Sparkles, BarChart3, Plus } from "lucide-react";
+import { Calendar, Sparkles, Plus, Check } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -14,10 +14,11 @@ async function getDashboardData() {
   const weekStart = startOfWeek(now, { weekStartsOn: 1 });
   const weekEnd = endOfWeek(now, { weekStartsOn: 1 });
 
-  const [posts, allPosts, recentKpis, ideas] = await Promise.all([
+  const [posts, allPosts, recentKpis, ideas, allPlatformStatuses] = await Promise.all([
     prisma.post.findMany({
       where: { scheduledDate: { gte: weekStart, lte: weekEnd } },
       orderBy: { scheduledDate: "asc" },
+      include: { platformStatuses: true },
     }),
     prisma.post.findMany({ where: { status: "PUBLISHED" } }),
     prisma.kPI.findMany({ orderBy: { recordedAt: "desc" }, take: 10 }),
@@ -26,11 +27,24 @@ async function getDashboardData() {
       orderBy: { rating: "desc" },
       take: 5,
     }),
+    prisma.postPlatformStatus.findMany(),
   ]);
 
   const pillarCounts: Record<string, number> = {};
   for (const post of allPosts) {
     pillarCounts[post.pillar] = (pillarCounts[post.pillar] || 0) + 1;
+  }
+
+  // Platform channel stats
+  const channelStats: Record<string, { total: number; published: number }> = {};
+  for (const key of Object.keys(PLATFORM_CHANNELS)) {
+    channelStats[key] = { total: 0, published: 0 };
+  }
+  for (const ps of allPlatformStatuses) {
+    if (channelStats[ps.platform]) {
+      channelStats[ps.platform].total++;
+      if (ps.published) channelStats[ps.platform].published++;
+    }
   }
 
   const totalViews = recentKpis.reduce((sum, k) => sum + k.views, 0);
@@ -41,7 +55,7 @@ async function getDashboardData() {
       ? recentKpis.reduce((sum, k) => sum + (k.engagementRate || 0), 0) / recentKpis.length
       : 0;
 
-  return { posts, pillarCounts, totalViews, totalLikes, totalSaves, avgEngagement, ideas, allPostsCount: allPosts.length };
+  return { posts, pillarCounts, totalViews, totalLikes, totalSaves, avgEngagement, ideas, allPostsCount: allPosts.length, channelStats };
 }
 
 export default async function DashboardPage() {
@@ -76,6 +90,36 @@ export default async function DashboardPage() {
           </Card>
         ))}
       </div>
+
+      {/* Platform Overview */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Plattform-Übersicht</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3 md:grid-cols-5">
+            {(Object.entries(PLATFORM_CHANNELS) as [PlatformChannelKey, (typeof PLATFORM_CHANNELS)[PlatformChannelKey]][]).map(
+              ([key, channel]) => {
+                const stats = data.channelStats[key];
+                return (
+                  <div key={key} className="flex items-center gap-3 rounded-lg border p-3">
+                    <span className={`h-3 w-3 rounded-full ${channel.color}`} />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{channel.label}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {stats.published}/{stats.total} gepostet
+                      </p>
+                    </div>
+                    {stats.total > 0 && stats.published === stats.total && (
+                      <Check className="ml-auto h-4 w-4 text-green-500 flex-shrink-0" />
+                    )}
+                  </div>
+                );
+              }
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Quick Actions */}
       <div className="grid gap-4 md:grid-cols-3">
@@ -129,11 +173,26 @@ export default async function DashboardPage() {
                       {format(day, "EEE d.", { locale: de })}
                     </p>
                     {dayPosts.map((post) => (
-                      <div
-                        key={post.id}
-                        className={`mb-1 rounded px-1.5 py-0.5 text-xs text-white ${PILLARS[post.pillar as PillarKey]?.color || "bg-gray-500"}`}
-                      >
-                        {post.title.length > 20 ? post.title.slice(0, 20) + "…" : post.title}
+                      <div key={post.id} className="mb-1">
+                        <div
+                          className={`rounded px-1.5 py-0.5 text-xs text-white ${PILLARS[post.pillar as PillarKey]?.color || "bg-gray-500"}`}
+                        >
+                          {post.title.length > 20 ? post.title.slice(0, 20) + "…" : post.title}
+                        </div>
+                        {post.platformStatuses?.length > 0 && (
+                          <div className="flex gap-0.5 mt-0.5">
+                            {post.platformStatuses.map((ps) => {
+                              const ch = PLATFORM_CHANNELS[ps.platform as PlatformChannelKey];
+                              return ch ? (
+                                <span
+                                  key={ps.platform}
+                                  className={`h-1.5 w-1.5 rounded-full ${ps.published ? ch.color : "bg-gray-300"}`}
+                                  title={`${ch.label}: ${ps.published ? "Gepostet" : "Offen"}`}
+                                />
+                              ) : null;
+                            })}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>

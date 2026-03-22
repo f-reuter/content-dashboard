@@ -22,6 +22,7 @@ model Post {
   publishedDate  DateTime?
   thumbnailIdea  String?
   ctaText        String?
+  platformContent String?  // JSON: { "INSTAGRAM": { script, caption, hashtags, cta }, ... }
   seriesId       String?
   parentPostId   String?
   batchSessionId String?
@@ -36,6 +37,7 @@ model Post {
   hooks        Hook[]
   abTestsA     ABTest[]      @relation("VariantA")
   abTestsB     ABTest[]      @relation("VariantB")
+  platformStatuses PostPlatformStatus[]
 }
 
 model KPI {
@@ -61,6 +63,7 @@ model Idea {
   pillar           String
   format           String?
   rating           Int      @default(0)
+  status           String   @default("NEW") // NEW, REVIEWED, PREPARING, CONVERTED
   sourceVideoUrls  String?
   convertedToPostId String?
   createdAt        DateTime @default(now())
@@ -70,8 +73,14 @@ model Hook {
   id               String   @id @default(cuid())
   text             String
   type             String   // QUESTION, CONTROVERSIAL, RESULT, SHOCK, STORY
+  platforms        String?  // Komma-separiert: INSTAGRAM,TIKTOK,YOUTUBE,LINKEDIN
+  formats          String?  // Komma-separiert: REEL,CAROUSEL,YOUTUBE_LONG,etc.
+  pillar           String?  // AI, EFFICIENCY, FITNESS, REALTALK
   postId           String?
   performanceScore Float?
+  usageCount       Int      @default(0)
+  isFavorite       Boolean  @default(false)
+  notes            String?  // Warum funktioniert dieser Hook?
   createdAt        DateTime @default(now())
 
   post Post? @relation(fields: [postId], references: [id])
@@ -101,6 +110,97 @@ model BatchSession {
   createdAt   DateTime @default(now())
 
   posts Post[]
+}
+
+model PostPlatformStatus {
+  id          String    @id @default(cuid())
+  postId      String
+  platform    String    // INSTAGRAM, TIKTOK, YOUTUBE_LONG, YOUTUBE_SHORT, LINKEDIN
+  published   Boolean   @default(false)
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, platform])
+}
+
+model Competitor {
+  id          String   @id @default(cuid())
+  name        String
+  platform    String   // INSTAGRAM, TIKTOK, YOUTUBE, LINKEDIN
+  handle      String
+  profileUrl  String?
+  notes       String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  scannedContent ScannedContent[]
+
+  @@unique([platform, handle])
+}
+
+model ScannedContent {
+  id            String    @id @default(cuid())
+  competitorId  String?
+  platform      String
+  externalId    String?
+  title         String?
+  caption       String?
+  url           String?
+  thumbnailUrl  String?
+  views         Int       @default(0)
+  likes         Int       @default(0)
+  comments      Int       @default(0)
+  shares        Int       @default(0)
+  publishedAt   DateTime?
+  viralScore    Float?
+  hashtags      String?
+  contentType   String?   // REEL, SHORT, LONG, CAROUSEL, POST
+  aiAnalysis    String?
+  savedAsIdea   Boolean   @default(false)
+  scannedAt     DateTime  @default(now())
+
+  competitor Competitor? @relation(fields: [competitorId], references: [id], onDelete: Cascade)
+
+  @@unique([platform, externalId])
+}
+
+model TrendSnapshot {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  platform    String?
+  urgency     Int      @default(3)
+  pillar      String?
+  hookIdea    String?
+  source      String?
+  scannedAt   DateTime @default(now())
+}
+
+model BrandConfig {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+model ChatConversation {
+  id        String        @id @default(cuid())
+  title     String?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  messages  ChatMessage[]
+}
+
+model ChatMessage {
+  id             String           @id @default(cuid())
+  conversationId String
+  role           String           // "user" | "assistant"
+  content        String
+  createdAt      DateTime         @default(now())
+
+  conversation ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 }
 
 model ABTest {
